@@ -181,7 +181,10 @@ static int allocate_transfers(airspy_device_t* const device)
 
 		sample_count = device->buffer_size / 2;
 		
-		device->output_buffer = (float *) malloc(sample_count * sizeof(float));
+// HB9FUF - SamplesStreamCompressionExperiment BEGIN
+		// device->output_buffer = (float *) malloc(sample_count * sizeof(float));
+		device->output_buffer = (float *) malloc(sample_count * sizeof(float) * 4 / 3);
+// HB9FUF - SamplesStreamCompressionExperiment END
 		if (device->output_buffer == NULL)
 		{
 			return AIRSPY_ERROR_NO_MEM;
@@ -267,6 +270,20 @@ static void convert_samples_float(uint16_t *src, float *dest, int count)
 	}
 }
 
+// HB9FUF - SamplesStreamCompressionExperiment BEGIN
+void samplesStreamCompressionExperiment_unpackSamples_uint16(uint16_t* packed_samples, uint16_t* unpacked_samples, const unsigned int samples_nbr)
+{
+	int index_packed, index_unpacked;
+	for(index_packed = ((samples_nbr * 3) / 4) - 1, index_unpacked = samples_nbr - 1; index_unpacked > 0; index_packed = index_packed - 3, index_unpacked = index_unpacked - 4)
+	{
+		unpacked_samples[index_unpacked-0] =  (packed_samples[index_packed-0] & 0x0FFF);
+		unpacked_samples[index_unpacked-1] =  (packed_samples[index_packed-0] >> 12)          | ((packed_samples[index_packed-1] & 0x00FF) << 4);
+		unpacked_samples[index_unpacked-2] = ((packed_samples[index_packed-1] & 0xFF00) >> 8) | ((packed_samples[index_packed-2] & 0x000F) << 8);
+		unpacked_samples[index_unpacked-3] =  (packed_samples[index_packed-2] >> 4);
+	}
+}
+// HB9FUF - SamplesStreamCompressionExperiment END
+
 static void* conversion_threadproc(void *arg)
 {
 	int sample_count;
@@ -279,6 +296,13 @@ static void* conversion_threadproc(void *arg)
 	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
 
 #endif
+
+// HB9FUF - SamplesStreamCompressionExperiment BEGIN
+	uint16_t* unpacked_samples;
+	sample_count = device->buffer_size / 2;
+	sample_count = (sample_count * 4) / 3;
+	unpacked_samples=(uint16_t *)malloc(sample_count*sizeof(uint16_t));  // TODO: free-up this memory somewhere sometime
+// HB9FUF - SamplesStreamCompressionExperiment END
 
 	while (device->streaming && !device->stop_requested)
 	{
@@ -302,6 +326,12 @@ static void* conversion_threadproc(void *arg)
 
 		input_samples = device->received_samples_queue[device->received_samples_queue_tail];
 		sample_count = device->buffer_size / 2;
+
+// HB9FUF - SamplesStreamCompressionExperiment BEGIN
+		sample_count = (sample_count * 4) / 3;
+		samplesStreamCompressionExperiment_unpackSamples_uint16(input_samples, unpacked_samples, (unsigned int) sample_count);
+		input_samples = unpacked_samples;
+// HB9FUF - SamplesStreamCompressionExperiment END
 
 		switch (device->sample_type)
 		{
@@ -657,7 +687,10 @@ static int airspy_open_init(airspy_device_t** device, uint64_t serial_number)
 	lib_device->transfers = NULL;
 	lib_device->callback = NULL;
 	lib_device->transfer_count = 16;
-	lib_device->buffer_size = 262144;
+// HB9FUF - SamplesStreamCompressionExperiment BEGIN
+	// lib_device->buffer_size = 262144;
+	lib_device->buffer_size = 196608;
+// HB9FUF - SamplesStreamCompressionExperiment BEGIN
 	lib_device->streaming = false;
 	lib_device->stop_requested = false;
 	lib_device->sample_type = AIRSPY_SAMPLE_FLOAT32_IQ;
